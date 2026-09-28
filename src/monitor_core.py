@@ -297,6 +297,7 @@ class MonitorCore:
         total_crawlers = len(self.crawlers)
         
         # AI 过滤统计
+        change_stats = {'changed': [], 'unchanged': 0}
         ai_stats = {
             'keyword_matched': [],  # 关键词匹配的项目 (title, url)
             'ai_approved': [],      # AI 判定相关的项目 (title, url, reason)
@@ -366,10 +367,25 @@ class MonitorCore:
                                     'reason': ai_reason
                                 })
                         
-                        if not self.storage.exists(bid):
-                            self.storage.save(bid, notified=False)
+                        # v1.2.0: 内容感知去重 + 快照
+                        # 上游只判断 URL 是否存在，会漏掉「更正/延期公告」
+                        # （同一 URL、新内容）。这里改用 save_or_update 区分
+                        # new / changed / unchanged 三种情形。
+                        status = self.storage.save_or_update(bid, notified=False)
+                        if status == "new":
                             all_matched_bids.append(bid)
                             matched_count += 1
+                        elif status == "changed":
+                            # 同一 URL 的内容更新 —— 这正是上游会漏掉的一类
+                            all_matched_bids.append(bid)
+                            matched_count += 1
+                            change_stats['changed'].append({
+                                'title': bid.title,
+                                'url': bid.url
+                            })
+                            self.log(f"[变更] 内容更新: {bid.title[:30]}...")
+                        else:
+                            change_stats['unchanged'] += 1
                 
                 self.log(f"[OK] {crawler.name}: Found {len(bids)} items, {matched_count} new matches")
                 
@@ -392,6 +408,17 @@ class MonitorCore:
                 self.log(f"  - {site['name']}: {site['error']}")
         
         # 输出 AI 过滤汇总报告
+        # 内容变更汇总（v1.2.0）
+        if change_stats['changed'] or change_stats['unchanged']:
+            self.log("")
+            self.log("=" * 50)
+            self.log("📝 内容变更检测")
+            self.log("=" * 50)
+            self.log(f"🔁 内容更新（更正/延期等）: {len(change_stats['changed'])} 条")
+            for c in change_stats['changed']:
+                self.log(f"   - {c['title'][:50]}")
+            self.log(f"⚪ 内容未变（重复抓取）: {change_stats['unchanged']} 条")
+
         if self.ai_guard and (ai_stats['keyword_matched'] or ai_stats['ai_approved'] or ai_stats['ai_rejected']):
             self.log("")
             self.log("=" * 50)
