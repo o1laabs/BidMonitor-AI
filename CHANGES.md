@@ -37,6 +37,47 @@
 - **默认行为不变**：`enable` 默认 `false`，`fail_open` 默认 `true`。
 - 原来依赖 `base_url` 硬编码实现的用法，需要补一项 `base_url` 配置。
 
+## v1.2.0 新增：快照表 + 内容感知去重
+
+文件：`src/database/storage.py`、`src/monitor_core.py`
+
+### 背景：上游的两个形态性缺陷
+
+1. **只存 URL 不存原文** —— 招标公告经常被修改或下架，只留一个链接，
+   事后无法证明"当时的公告是这么写的"。
+2. **`md5(url)` 去重会跳过更正公告** —— `BidInfo.unique_id` 仅由 URL 生成，
+   于是「同一 URL、内容已更新」的更正/延期公告会被判定为"已存在"而静默跳过。
+   这在招投标场景是致命的：**延期公告往往比原公告更关键。**
+
+### 改动
+
+**新增 `bid_snapshots` 表**（每次抓取都留痕，构成时间序列）：
+
+| 字段 | 用途 |
+|---|---|
+| `url_id` | URL 维度的标识，把同一公告的各版本串起来 |
+| `content` / `content_hash` | 正文及其归一化哈希 |
+| `raw_html` | 原始 HTML（可选，用于留证） |
+| `http_status` | 抓取时的响应状态 |
+| `fetched_at` | 抓取时间 |
+| `fetch_reason` | `new` / `changed` / `unchanged` |
+
+**去重逻辑升级为内容感知**：
+
+- `content_hash()` 做**空白归一化**后再哈希 —— 排版变化不会被误判为内容更新。
+- `BidInfo.unique_id`：`content` 为空时退化为 `md5(url)`（**与旧库行为完全一致**）；
+  非空时为 `md5(url + content_hash)`。
+- **新增 `save_or_update()`**，返回三种状态：
+
+  | 返回 | 含义 | 处理 |
+  |---|---|---|
+  | `"new"` | 首次出现 | 入库 + 通知 |
+  | `"changed"` | 同 URL、内容已变 | **作为新版本入库 + 通知** |
+  | `"unchanged"` | 同 URL、内容未变 | 只记快照，不打扰 |
+
+**兼容性**：新增 `url_id` 列，旧库启动时自动 `ALTER TABLE` 迁移并回填
+（历史记录的 `url_id` 取原 `unique_id`）。所有原有方法签名不变。
+
 ## 验证
 
 改动经端到端测试（Mock 双协议服务端 + 真实 HTTP 往返）：
