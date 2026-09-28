@@ -1,0 +1,38 @@
+# 这里的 base_url 决定你的招标数据（含公司描述、项目标题）发给谁。
+# 不改的话默认走第三方中转，数据会经过你不控制的服务器。
+
+enable: false            # 默认关闭；开启前请先配好下面三项
+api_format: openai       # openai | anthropic
+base_url: https://api.openai.com/v1/chat/completions
+model: gpt-4o-mini
+
+# ⚠️ 不要把 api_key 明文写在这里。
+# 优先用环境变量，程序会按以下顺序读取：
+#   BIDMONITOR_AI_KEY > OPENAI_API_KEY > ANTHROPIC_API_KEY > 本文件
+# api_key: ""
+
+fail_open: true          # true=AI出错放行(宁可多推) false=出错拦下(宁可少推)
+max_tokens: 512          # reasoning 模型给小了会返回空内容
+timeout: 120
+
+# 自定义判断 prompt，留空用内置的
+# prompt: ""
+
+# ------------------------------------------------------------------
+# 常用组合参考
+# ------------------------------------------------------------------
+#
+# 【本地方案 · 数据不出机器，推荐】
+#   api_format: openai
+#   base_url: http://localhost:11434/v1/chat/completions
+#   model: qwen2.5:14b
+#
+# 【自建网关 · 任何 OpenAI 兼容端点】
+#   api_format: openai
+#   base_url: https://你的网关/v1/chat/completions
+#   model: 网关支持的模型名
+#
+# 【Anthropic 官方 · 需海外出口】
+#   api_format: anthropic
+#   base_url: https://api.anthropic.com
+#   model: claude-sonnet-4-5-20250929
